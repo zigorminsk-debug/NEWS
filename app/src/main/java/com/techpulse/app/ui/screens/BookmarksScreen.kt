@@ -6,26 +6,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.techpulse.app.FeedViewModel
+import com.techpulse.app.data.FeedItem
 import com.techpulse.app.ui.components.EmptyState
 import com.techpulse.app.ui.components.NewsList
 import com.techpulse.app.ui.components.ScreenHeader
-import com.techpulse.app.ui.openUrl
 
-/** Избранное: статьи, сохранённые из ленты. */
+/** Избранное: статьи, сохранённые из ленты. Открываются во встроенном ридере. */
 @Composable
 fun BookmarksScreen(
     viewModel: FeedViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenArticle: (FeedItem) -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
 
     val sortedBookmarks = state.bookmarks.sortedByDescending { it.publishedAt }
 
@@ -50,7 +48,7 @@ fun BookmarksScreen(
             NewsList(
                 feedItems = sortedBookmarks,
                 error = null,
-                onOpen = { openUrl(context, it.link) },
+                onOpen = onOpenArticle,
                 onToggleBookmark = viewModel::toggleBookmark,
                 isBookmarked = viewModel::isBookmarked
             )

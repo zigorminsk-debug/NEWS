@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit
  */
 class NewsRepository(context: Context) {
 
+    private val appContext = context.applicationContext
     private val cacheFile: File = File(context.filesDir, "feed_cache.json")
 
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -126,11 +127,24 @@ class NewsRepository(context: Context) {
             )
         }
         cacheFile.writeText(array.toString())
+        appContext.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_CACHE_UPDATED, System.currentTimeMillis())
+            .apply()
     }
 
     companion object {
         private const val MAX_ITEMS = 300
         private const val USER_AGENT =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 TechPulse/1.0"
+
+        private const val META_PREFS = "techpulse_feed_meta"
+        private const val KEY_CACHE_UPDATED = "cache_updated_at"
+
+        /** Время последнего успешного обновления ленты (для виджетов). */
+        fun cacheUpdatedAt(context: Context): Long =
+            context.applicationContext
+                .getSharedPreferences(META_PREFS, Context.MODE_PRIVATE)
+                .getLong(KEY_CACHE_UPDATED, 0L)
     }
 }

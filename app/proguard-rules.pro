@@ -12,3 +12,6 @@
 -dontwarn javax.annotation.**
 -dontwarn kotlin.Unit
 -dontwarn org.slf4j.**
+
+# Jsoup: не использует рефлексию по нашим классам, предупреждения можно игнорировать
+-dontwarn org.jsoup.**
