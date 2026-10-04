@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TechPulse</string>
+    <string name="widget_list_label">TechPulse · лента новостей</string>
+    <string name="widget_list_desc">Свежие IT-новости списком, тап по новости открывает статью в приложении.</string>
+    <string name="widget_compact_label">TechPulse · топ-новость</string>
+    <string name="widget_compact_desc">Самая свежая новость ленты, тап открывает статью в приложении.</string>
 </resources>

@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.techpulse.app.DeepLinkBus
 import com.techpulse.app.FeedViewModel
 import com.techpulse.app.data.FeedItem
 import com.techpulse.app.data.ItResource
@@ -40,6 +41,7 @@ import com.techpulse.app.ui.update.UpdateHost
 import com.techpulse.app.ui.web.WebViewScreen
 import com.techpulse.app.update.AppUpdateManager
 import com.techpulse.app.update.UpdateState
+import kotlinx.coroutines.delay
 
 private data class TabItem(
     val title: String,
@@ -73,15 +75,36 @@ fun AppRoot() {
         updateManager.checkIfNeeded(force = false)
     }
 
+    var selectedTab by rememberSaveable { mutableStateOf(0) }
+    var readerItem by remember { mutableStateOf<FeedItem?>(null) }
+    var webTarget by remember { mutableStateOf<WebTarget?>(null) }
+
+    // Deep link из виджетов рабочего стола: ищем статью в ленте/закладках
+    // (ждём первой загрузки ленты) и открываем во встроенном ридере
+    LaunchedEffect(Unit) {
+        DeepLinkBus.url.collect { link ->
+            if (link.isNullOrBlank()) return@collect
+            DeepLinkBus.consume()
+            var item = findByLink(viewModel, link)
+            var waited = 0
+            while (item == null && waited < 6_000) {
+                delay(300)
+                waited += 300
+                item = findByLink(viewModel, link)
+            }
+            if (item != null) {
+                readerItem = item
+            } else {
+                openUrl(context, link)
+            }
+        }
+    }
+
     val tabs = listOf(
         TabItem("Лента", Icons.Filled.Article),
         TabItem("Ресурсы", Icons.Filled.Explore),
         TabItem("Избранное", Icons.Filled.Bookmarks)
     )
-
-    var selectedTab by rememberSaveable { mutableStateOf(0) }
-    var readerItem by remember { mutableStateOf<FeedItem?>(null) }
-    var webTarget by remember { mutableStateOf<WebTarget?>(null) }
 
     Box(
         modifier = Modifier
@@ -161,4 +184,10 @@ fun AppRoot() {
         // Диалоги автообновления — самый верхний слой
         UpdateHost(manager = updateManager, state = updateState)
     }
+}
+
+private fun findByLink(viewModel: FeedViewModel, link: String): FeedItem? {
+    val state = viewModel.uiState.value
+    return state.items.firstOrNull { it.link == link }
+        ?: state.bookmarks.firstOrNull { it.link == link }
 }

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Подложка виджетов: тёмная карточка с рамкой в стиле приложения -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#0F1522" />
+    <corners android:radius="18dp" />
+    <stroke android:width="1dp" android:color="#233150" />
+</shape>

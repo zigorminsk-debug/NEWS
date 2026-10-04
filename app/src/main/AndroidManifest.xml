@@ -18,12 +18,47 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Виджет рабочего стола: лента новостей (список) -->
+        <receiver
+            android:name=".widget.NewsListWidgetProvider"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/widget_list_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/news_list_widget_info" />
+        </receiver>
+
+        <!-- Виджет рабочего стола: топ-новость (компактный) -->
+        <receiver
+            android:name=".widget.NewsCompactWidgetProvider"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/widget_compact_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/news_compact_widget_info" />
+        </receiver>
+
+        <!-- RemoteAdapter списка новостей для виджета -->
+        <service
+            android:name=".widget.NewsWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
 
         <!-- Раздача скачанных APK системному установщику -->
         <provider

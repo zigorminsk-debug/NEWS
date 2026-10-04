@@ -7,6 +7,7 @@ import com.techpulse.app.data.BookmarksStore
 import com.techpulse.app.data.FeedItem
 import com.techpulse.app.data.NewsRepository
 import com.techpulse.app.data.translate.Translator
+import com.techpulse.app.widget.WidgetRefresh
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -80,6 +81,8 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
         // После обновления ленты — фоново переводим заголовки и аннотации новых карточек
         if (fresh.isNotEmpty()) {
             scheduleFeedTranslations(fresh)
+            // и обновляем виджеты рабочего стола
+            runCatching { WidgetRefresh.notifyAll(getApplication()) }
         }
     }
 
