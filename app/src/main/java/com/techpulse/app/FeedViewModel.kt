@@ -6,10 +6,13 @@ import androidx.lifecycle.viewModelScope
 import com.techpulse.app.data.BookmarksStore
 import com.techpulse.app.data.FeedItem
 import com.techpulse.app.data.NewsRepository
+import com.techpulse.app.data.translate.Translator
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -39,6 +42,8 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
             // Сначала показываем кэш (если есть), затем обновляем по сети
             val cached = repository.loadCache()
             _uiState.update { it.copy(items = cached, initialLoading = cached.isEmpty()) }
+            // Переводим заголовки/аннотации ленты на русский в фоне
+            scheduleFeedTranslations(cached)
             runRefresh(initial = cached.isEmpty())
         }
     }
@@ -70,7 +75,56 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
                     error = null,
                     lastUpdated = System.currentTimeMillis()
                 )
+                // После обновления ленты — фоново переводим новые карточки
+                scheduleFeedTranslations(fresh)
             }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Авто-перевод ленты (заголовки и аннотации англоязычных карточек)
+    // ------------------------------------------------------------------
+
+    private var feedTranslationJob: Job? = null
+
+    private fun scheduleFeedTranslations(items: List<FeedItem>) {
+        feedTranslationJob?.cancel()
+        val targets = items
+            .asSequence()
+            .filter { it.translatedTitle == null }
+            .filter { !Translator.isMostlyCyrillic(it.title + " " + it.summary) }
+            .take(MAX_FEED_TRANSLATIONS)
+            .toList()
+        if (targets.isEmpty()) return
+
+        feedTranslationJob = viewModelScope.launch {
+            for (item in targets) {
+                if (!isActive) break
+                val title = Translator.translateText(item.title, "ru")
+                val summary = if (item.summary.isNotBlank()) {
+                    Translator.translateText(item.summary, "ru")
+                } else {
+                    null
+                }
+                if (title == null && summary == null) continue
+                applyFeedTranslation(item.id, title, summary)
+            }
+        }
+    }
+
+    private fun applyFeedTranslation(itemId: String, title: String?, summary: String?) {
+        _uiState.update { state ->
+            fun List<FeedItem>.patch(): List<FeedItem> = map { item ->
+                if (item.id == itemId) {
+                    item.copy(
+                        translatedTitle = title ?: item.translatedTitle,
+                        translatedSummary = summary ?: item.translatedSummary
+                    )
+                } else {
+                    item
+                }
+            }
+            state.copy(items = state.items.patch(), bookmarks = state.bookmarks.patch())
         }
     }
 
@@ -99,4 +153,9 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun isBookmarked(item: FeedItem): Boolean = bookmarkStore.isBookmarked(item)
+
+    companion object {
+        /** Сколько самых свежих карточек переводить за один проход. */
+        private const val MAX_FEED_TRANSLATIONS = 80
+    }
 }

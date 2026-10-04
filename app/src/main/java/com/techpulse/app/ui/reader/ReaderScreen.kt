@@ -22,10 +22,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Button
@@ -46,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -144,22 +147,33 @@ fun ReaderScreen(
     // Подсказки режима обучения
     var hintTranslations by remember(item.link) { mutableStateOf<Map<String, String>>(emptyMap()) }
     var tappedWord by remember { mutableStateOf<String?>(null) }
+    var registeredHints by remember(item.link) { mutableStateOf<Set<String>>(emptySet()) }
 
     val article = (articleUi as? ArticleUi.Success)?.article
     val articleSeed = remember(item.link) { item.link.hashCode() }
-    val density = remember(item.link) { learningStore.hintDensity() }
 
-    // Детерминированный выбор слов-подсказок для статьи
-    val hintSelection: Map<Int, Set<String>> = remember(article, learningMode) {
+    // Уровень обучения: 1 — почти всё переведено, 10 — почти без перевода.
+    // Автоматически растёт каждые ARTICLES_PER_LEVEL прочитанных статей.
+    var level by remember(item.link) { mutableIntStateOf(learningStore.learningLevel) }
+    val progressBonus = learningStore.articlesRead / LearningStore.ARTICLES_PER_LEVEL
+    val effectiveLevel = (level + progressBonus).coerceIn(1, LearningStore.MAX_LEVEL)
+    val density = learningStore.densityForLevel(effectiveLevel)
+
+    // Детерминированный план подсказок статьи:
+    // 1-е вхождение слова — с переводом, 2-е — только маркер, 3-е — без перевода
+    val hintPlan: WordEngine.ArticleHints = remember(article, learningMode, effectiveLevel) {
         val a = article
         if (a == null || !learningMode) {
-            emptyMap()
+            WordEngine.ArticleHints.EMPTY
         } else {
-            a.blocks.mapIndexedNotNull { index, block ->
-                val text = ArticleExtractor.blockText(block) ?: return@mapIndexedNotNull null
-                val selection = WordEngine.selectHints(text, articleSeed, density, learningStore)
-                if (selection.isEmpty()) null else index to selection
-            }.toMap()
+            WordEngine.buildArticleHints(
+                texts = a.blocks.map {
+                    if (it is ArticleExtractor.Block.Paragraph) it.text else null
+                },
+                articleSeed = articleSeed,
+                density = density,
+                store = learningStore
+            )
         }
     }
 
@@ -202,10 +216,16 @@ fun ReaderScreen(
     }
 
     // Предзагрузка переводов подсказок режима обучения
-    LaunchedEffect(hintSelection) {
-        val words = hintSelection.values.flatten().distinct()
+    LaunchedEffect(hintPlan) {
+        val words = hintPlan.selected.toList()
         if (words.isEmpty()) return@LaunchedEffect
-        learningStore.registerHints(words)
+
+        // Засчитываем показ подсказки каждому слову один раз на статью
+        val fresh = words - registeredHints
+        if (fresh.isNotEmpty()) {
+            learningStore.registerHints(fresh)
+            registeredHints = registeredHints + fresh
+        }
 
         val fromCache = words.mapNotNull { w -> Translator.cachedWord(w, "en", "ru")?.let { w to it } }
         if (fromCache.isNotEmpty()) hintTranslations = hintTranslations + fromCache.toMap()
@@ -273,9 +293,16 @@ fun ReaderScreen(
 
         if (learningMode && !isRussianArticle) {
             LearningBanner(
+                level = effectiveLevel,
                 density = density,
                 articlesRead = learningStore.articlesRead,
-                learnedWords = learningStore.knownCount + learningStore.learnedCount
+                learnedWords = learningStore.knownCount + learningStore.learnedCount,
+                onLevelChange = { newEffectiveLevel ->
+                    val newBase = (newEffectiveLevel - progressBonus)
+                        .coerceIn(1, LearningStore.MAX_LEVEL)
+                    level = newBase
+                    learningStore.learningLevel = newBase
+                }
             )
         }
 
@@ -306,7 +333,7 @@ fun ReaderScreen(
                         originalShown + index
                     }
                 },
-                hintSelection = hintSelection,
+                hintPlan = hintPlan,
                 hintTranslations = hintTranslations,
                 onWordClick = { tappedWord = it }
             )
@@ -408,9 +435,18 @@ private fun ReaderTopBar(
     }
 }
 
-/** Информационная плашка режима обучения: текущая интенсивность подсказок и прогресс. */
+/**
+ * Плашка режима обучения: выбор уровня 1–10, текущая плотность подсказок
+ * и прогресс (статьи, изученные слова).
+ */
 @Composable
-private fun LearningBanner(density: Float, articlesRead: Int, learnedWords: Int) {
+private fun LearningBanner(
+    level: Int,
+    density: Float,
+    articlesRead: Int,
+    learnedWords: Int,
+    onLevelChange: (Int) -> Unit
+) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -420,7 +456,7 @@ private fun LearningBanner(density: Float, articlesRead: Int, learnedWords: Int)
         border = androidx.compose.foundation.BorderStroke(1.dp, AccentGreen.copy(alpha = 0.35f))
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -430,13 +466,52 @@ private fun LearningBanner(density: Float, articlesRead: Int, learnedWords: Int)
                 modifier = Modifier.size(14.dp)
             )
             Spacer(Modifier.width(8.dp))
-            Text(
-                text = "ОБУЧЕНИЕ · подсказки ${(density * 100).toInt()}% · " +
-                    "статей: $articlesRead · слов изучено: $learnedWords",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 10.sp,
-                color = TextSecondary
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "ОБУЧЕНИЕ · УРОВЕНЬ $level/${LearningStore.MAX_LEVEL}",
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "подсказки ${(density * 100).toInt()}% · статей: $articlesRead · " +
+                        "слов изучено: $learnedWords",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 9.sp,
+                    color = TextSecondary
+                )
+                Text(
+                    text = "1-я встреча — перевод · 2-я — подсказка · 3-я — без перевода",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 9.sp,
+                    color = TextSecondary.copy(alpha = 0.7f)
+                )
+            }
+            IconButton(
+                onClick = { onLevelChange(level - 1) },
+                enabled = level > 1,
+                modifier = Modifier.size(30.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Remove,
+                    contentDescription = "Понизить уровень",
+                    tint = if (level > 1) AccentGreen else TextSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            IconButton(
+                onClick = { onLevelChange(level + 1) },
+                enabled = level < LearningStore.MAX_LEVEL,
+                modifier = Modifier.size(30.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = "Повысить уровень",
+                    tint = if (level < LearningStore.MAX_LEVEL) AccentGreen else TextSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
     }
 }
@@ -456,7 +531,7 @@ private fun ArticleBody(
     translatedTitle: String?,
     originalShown: Set<Int>,
     onToggleOriginal: (Int) -> Unit,
-    hintSelection: Map<Int, Set<String>>,
+    hintPlan: WordEngine.ArticleHints,
     hintTranslations: Map<String, String>,
     onWordClick: (String) -> Unit
 ) {
@@ -559,7 +634,8 @@ private fun ArticleBody(
                     translation = translations[index],
                     showOriginal = index in originalShown,
                     onToggleOriginal = { onToggleOriginal(index) },
-                    hintWords = hintSelection[index].orEmpty(),
+                    hintWords = hintPlan.wordsInBlock[index].orEmpty(),
+                    hintPreCount = hintPlan.preCount[index].orEmpty(),
                     hintTranslations = hintTranslations,
                     onWordClick = onWordClick
                 )
@@ -590,6 +666,7 @@ private fun ParagraphBlock(
     showOriginal: Boolean,
     onToggleOriginal: () -> Unit,
     hintWords: Set<String>,
+    hintPreCount: Map<String, Int>,
     hintTranslations: Map<String, String>,
     onWordClick: (String) -> Unit
 ) {
@@ -615,17 +692,11 @@ private fun ParagraphBlock(
 
             // Оригинал с кликабельными словами (+ подсказки в режиме обучения)
             else -> {
-                val visibleHints = if (learningMode) {
-                    hintWords.mapNotNull { w -> hintTranslations[w]?.let { w to it } }.toMap()
-                } else {
-                    emptyMap()
-                }
-                val pendingHints = if (learningMode) hintWords - visibleHints.keys else emptySet()
-
                 AnnotatedParagraph(
                     text = text,
-                    hints = visibleHints,
-                    pendingHints = pendingHints,
+                    candidateWords = if (learningMode) hintWords else emptySet(),
+                    preCount = if (learningMode) hintPreCount else emptyMap(),
+                    translations = if (learningMode) hintTranslations else emptyMap(),
                     onWordClick = onWordClick,
                     style = style,
                     baseColor = TextPrimary
@@ -653,20 +724,25 @@ private const val TAG_WORD = "word"
 
 /**
  * Абзац, в котором каждое английское слово кликабельно (показывает карточку
- * перевода), а к выбранным «сложным» словам рядом выводится мини-перевод.
+ * перевода). Для слов-кандидатов действует правило повторений:
+ *  - 1-е вхождение в статье — слово подсвечено, рядом мини-перевод;
+ *  - 2-е вхождение — только маркер-подсказка (подчёркивание);
+ *  - 3-е и далее — обычный текст без перевода и маркера.
  */
 @Composable
 private fun AnnotatedParagraph(
     text: String,
-    hints: Map<String, String>,
-    pendingHints: Set<String>,
+    candidateWords: Set<String>,
+    preCount: Map<String, Int>,
+    translations: Map<String, String>,
     onWordClick: (String) -> Unit,
     style: TextStyle,
     baseColor: Color
 ) {
     val tokens = remember(text) { WordEngine.tokenize(text) }
 
-    val annotated = remember(tokens, hints, pendingHints, baseColor) {
+    val annotated = remember(tokens, candidateWords, preCount, translations, baseColor) {
+        val localCounts = HashMap<String, Int>()
         buildAnnotatedString {
             var pos = 0
             for (token in tokens) {
@@ -676,25 +752,45 @@ private fun AnnotatedParagraph(
                     continue
                 }
                 val key = WordEngine.normalize(token.text)
-                val hint = hints[key]
+                val isCandidate = key in candidateWords
+                val ordinal = if (isCandidate) {
+                    val count = (preCount[key] ?: 0) + (localCounts[key] ?: 0)
+                    localCounts[key] = (localCounts[key] ?: 0) + 1
+                    count
+                } else {
+                    -1
+                }
+                val inlineTranslation = translations[key]
 
                 val wordStart = pos
-                if (hint != null) {
-                    withStyle(SpanStyle(color = AccentGreen.copy(alpha = 0.95f))) {
-                        append(token.text)
+                when {
+                    // 1-е вхождение: слово + мини-перевод рядом
+                    ordinal == 0 && inlineTranslation != null -> {
+                        withStyle(SpanStyle(color = AccentGreen.copy(alpha = 0.95f))) {
+                            append(token.text)
+                        }
                     }
-                } else if (key in pendingHints) {
-                    withStyle(SpanStyle(textDecoration = TextDecoration.Underline)) {
-                        append(token.text)
+
+                    // 2-е вхождение (или 1-е, пока перевод ещё грузится): только маркер
+                    ordinal == 1 || (ordinal == 0 && inlineTranslation == null) -> {
+                        withStyle(
+                            SpanStyle(
+                                color = AccentGreen.copy(alpha = 0.85f),
+                                textDecoration = TextDecoration.Underline
+                            )
+                        ) {
+                            append(token.text)
+                        }
                     }
-                } else {
-                    append(token.text)
+
+                    // 3-е и далее — без перевода и маркера
+                    else -> append(token.text)
                 }
                 pos += token.text.length
                 addStringAnnotation(TAG_WORD, token.text, wordStart, pos)
 
-                if (hint != null) {
-                    val hintText = "·$hint"
+                if (ordinal == 0 && inlineTranslation != null) {
+                    val hintText = "·$inlineTranslation"
                     val hintStart = pos
                     withStyle(
                         SpanStyle(

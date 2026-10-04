@@ -67,7 +67,9 @@ fun FeedScreen(
             val matchesSource = state.activeSources.isEmpty() || item.sourceId in state.activeSources
             val matchesQuery = state.query.isBlank() ||
                 item.title.contains(state.query, ignoreCase = true) ||
-                item.summary.contains(state.query, ignoreCase = true)
+                item.summary.contains(state.query, ignoreCase = true) ||
+                item.translatedTitle?.contains(state.query, ignoreCase = true) == true ||
+                item.translatedSummary?.contains(state.query, ignoreCase = true) == true
             matchesSource && matchesQuery
         }
     }

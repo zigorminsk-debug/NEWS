@@ -175,9 +175,10 @@ fun NewsCard(
 
             Spacer(Modifier.height(8.dp))
 
-            // Заголовок
+            // Заголовок (перевод на русский, если он уже готов; под ним — оригинал)
+            val translatedTitle = item.translatedTitle
             Text(
-                text = item.title,
+                text = translatedTitle ?: item.title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = TextPrimary,
@@ -185,6 +186,17 @@ fun NewsCard(
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
+            if (translatedTitle != null && !translatedTitle.equals(item.title, ignoreCase = true)) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextSecondary.copy(alpha = 0.65f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
             // Обложка, если есть в фиде
             val imageUrl = item.imageUrl
@@ -203,11 +215,12 @@ fun NewsCard(
                 )
             }
 
-            // Краткая аннотация
-            if (item.summary.isNotBlank()) {
+            // Краткая аннотация (переведённая, если готова)
+            val displayedSummary = item.translatedSummary ?: item.summary
+            if (displayedSummary.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = item.summary,
+                    text = displayedSummary,
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     lineHeight = 18.sp,

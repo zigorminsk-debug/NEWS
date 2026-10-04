@@ -36,6 +36,14 @@ class LearningStore private constructor(context: Context) {
         get() = prefs.getBoolean(KEY_LEARNING, false)
         set(value) = prefs.edit().putBoolean(KEY_LEARNING, value).apply()
 
+    /**
+     * Начальный уровень обучения, выбранный пользователем: 1..10.
+     * 1 — «почти всё переведено», 10 — подсказок почти нет.
+     */
+    var learningLevel: Int
+        get() = prefs.getInt(KEY_LEVEL, DEFAULT_LEVEL)
+        set(value) = prefs.edit().putInt(KEY_LEVEL, value.coerceIn(1, MAX_LEVEL)).apply()
+
     init {
         articlesRead = prefs.getInt(KEY_ARTICLES_READ, 0)
         known += prefs.getStringSet(KEY_KNOWN, emptySet()).orEmpty()
@@ -95,17 +103,21 @@ class LearningStore private constructor(context: Context) {
     }
 
     /**
-     * Доля «сложных» слов абзаца, к которым показываем перевод-подсказку.
-     * Плавно убывает по мере чтения статей: сначала подсказки почти везде,
-     * затем всё реже — пользователь начинает читать без перевода.
+     * Текущий уровень: к начальному уровню добавляется прогресс —
+     * каждые [ARTICLES_PER_LEVEL] прочитанных статьи повышают уровень на 1,
+     * поэтому количество подсказок со временем уменьшается само.
      */
-    fun hintDensity(): Float = when {
-        articlesRead < 5 -> 0.55f
-        articlesRead < 15 -> 0.40f
-        articlesRead < 30 -> 0.28f
-        articlesRead < 60 -> 0.18f
-        else -> 0.10f
+    fun currentLevel(): Int =
+        (learningLevel + articlesRead / ARTICLES_PER_LEVEL).coerceIn(1, MAX_LEVEL)
+
+    /** Доля «сложных» слов с подсказкой для заданного уровня: 1 → 95%, 10 → 5%. */
+    fun densityForLevel(level: Int): Float {
+        val t = (level.coerceIn(1, MAX_LEVEL) - 1) / (MAX_LEVEL - 1).toFloat()
+        return START_DENSITY + (END_DENSITY - START_DENSITY) * t
     }
+
+    /** Доля «сложных» слов с подсказкой на текущем уровне. */
+    fun hintDensity(): Float = densityForLevel(currentLevel())
 
     private fun persist() {
         prefs.edit()
@@ -123,12 +135,24 @@ class LearningStore private constructor(context: Context) {
         /** После стольких показов подсказки слово считается усвоенным. */
         private const val LEARN_THRESHOLD = 6
 
+        /** Уровни обучения: 1 — переведено почти всё, 10 — почти без перевода. */
+        const val MAX_LEVEL = 10
+        const val DEFAULT_LEVEL = 1
+
+        /** Каждые столько прочитанных статей уровень повышается на 1 автоматически. */
+        const val ARTICLES_PER_LEVEL = 3
+
+        /** Плотность подсказок на уровне 1 / уровне 10. */
+        private const val START_DENSITY = 0.95f
+        private const val END_DENSITY = 0.05f
+
         private const val KEY_KNOWN = "known_words"
         private const val KEY_LEARNED = "learned_words"
         private const val KEY_STATS = "word_stats"
         private const val KEY_ARTICLES_READ = "articles_read"
         private const val KEY_AUTO_TRANSLATE = "auto_translate"
         private const val KEY_LEARNING = "learning_mode"
+        private const val KEY_LEVEL = "learning_level"
 
         @Volatile
         private var instance: LearningStore? = null
@@ -152,6 +176,29 @@ object WordEngine {
 
     private val WORD_REGEX = Regex("[A-Za-z]+(?:['’\\-][A-Za-z]+)*")
     private const val MAX_HINTS_PER_PARAGRAPH = 5
+    private const val MAX_HINTS_PER_PARAGRAPH_DENSE = 8
+    private const val MAX_ARTICLE_HINT_WORDS = 80
+
+    /**
+     * План подсказок для всей статьи.
+     *
+     * Правило повторений: первое вхождение слова-кандидата идёт с переводом,
+     * второе — только с маркером-подсказкой (подчёркивание), третье и далее —
+     * без перевода и маркера.
+     *
+     * @param wordsInBlock блок -> слова-кандидаты, встречающиеся в этом блоке;
+     * @param preCount     блок -> (слово -> сколько раз оно встретилось в предыдущих блоках);
+     * @param selected     все слова-кандидаты статьи (для предзагрузки переводов).
+     */
+    class ArticleHints(
+        val wordsInBlock: Map<Int, Set<String>>,
+        val preCount: Map<Int, Map<String, Int>>,
+        val selected: Set<String>
+    ) {
+        companion object {
+            val EMPTY = ArticleHints(emptyMap(), emptyMap(), emptySet())
+        }
+    }
 
     data class Token(val text: String, val isWord: Boolean)
 
@@ -228,14 +275,91 @@ object WordEngine {
 
         if (candidates.isEmpty()) return emptySet()
 
+        val cap = if (density >= 0.7f) MAX_HINTS_PER_PARAGRAPH_DENSE else MAX_HINTS_PER_PARAGRAPH
         val target = (candidates.size * density)
             .roundToInt()
-            .coerceIn(1, MAX_HINTS_PER_PARAGRAPH)
+            .coerceIn(1, cap)
 
         return candidates
             .sortedBy { stableScore(it, articleSeed) }
             .take(target)
             .toSet()
+    }
+
+    /**
+     * Строит общий план подсказок для статьи: объединяет выбор по абзацам,
+     * ограничивает общее количество слов и подсчитывает вхождения каждого
+     * слова по всей статье (для правила «1-я встреча — перевод, 2-я — маркер,
+     * 3-я — без перевода»).
+     *
+     * @param texts тексты блоков статьи по порядку; null — блок без текста.
+     */
+    fun buildArticleHints(
+        texts: List<String?>,
+        articleSeed: Int,
+        density: Float,
+        store: LearningStore
+    ): ArticleHints {
+        // Кандидаты по каждому блоку (учитывают известные/усвоенные слова)
+        val perBlock: List<Set<String>> = texts.map { text ->
+            if (text.isNullOrBlank()) emptySet() else selectHints(text, articleSeed, density, store)
+        }
+        val union = LinkedHashSet<String>()
+        perBlock.forEach { union.addAll(it) }
+        if (union.isEmpty()) return ArticleHints.EMPTY
+
+        // Нормализованные токены-слова каждого блока в порядке следования
+        val blockTokens: List<List<String>> = texts.map { text ->
+            if (text.isNullOrBlank()) {
+                emptyList()
+            } else {
+                tokenize(text).asSequence()
+                    .filter { it.isWord }
+                    .map { normalize(it.text) }
+                    .toList()
+            }
+        }
+
+        // Ограничение на общее число слов: приоритет — по первому появлению в тексте
+        val limited: Set<String> = if (union.size <= MAX_ARTICLE_HINT_WORDS) {
+            union
+        } else {
+            val firstIndex = HashMap<String, Int>()
+            var cursor = 0
+            blockTokens.forEach { tokens ->
+                for (token in tokens) {
+                    if (token in union && !firstIndex.containsKey(token)) {
+                        firstIndex[token] = cursor
+                    }
+                    cursor++
+                }
+            }
+            union.sortedBy { firstIndex[it] ?: Int.MAX_VALUE }
+                .take(MAX_ARTICLE_HINT_WORDS)
+                .toSet()
+        }
+
+        // Обходим статью с начала: для каждого блока фиксируем, сколько раз
+        // каждое слово-кандидат уже встречалось раньше
+        val counts = HashMap<String, Int>()
+        val preCount = HashMap<Int, Map<String, Int>>()
+        val wordsInBlock = HashMap<Int, Set<String>>()
+        blockTokens.forEachIndexed { index, tokens ->
+            if (!texts[index].isNullOrBlank()) {
+                val inBlock = tokens
+                    .asSequence()
+                    .filter { it in limited }
+                    .toCollection(LinkedHashSet())
+                if (inBlock.isNotEmpty()) {
+                    preCount[index] = inBlock.associateWith { counts[it] ?: 0 }
+                    wordsInBlock[index] = inBlock
+                }
+            }
+            for (token in tokens) {
+                if (token in limited) counts[token] = (counts[token] ?: 0) + 1
+            }
+        }
+        return ArticleHints(wordsInBlock, preCount, limited)
     }
 
     private fun stableScore(word: String, seed: Int): Int {
