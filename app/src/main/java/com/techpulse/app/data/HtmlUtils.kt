@@ -29,14 +29,23 @@ object HtmlUtils {
         "&bull;" to "•"
     )
 
-    /** Первая картинка из HTML (тег img). */
+    /** Первая картинка из HTML (тег img). Учитывает src, data-src и srcset. */
     fun firstImageUrl(html: String): String? {
         val imgIndex = html.indexOf("<img", ignoreCase = true)
         if (imgIndex < 0) return null
-        val rest = html.substring(imgIndex)
-        val match = Regex("src\\s*=\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE).find(rest)
-            ?: return null
-        return match.groupValues[1].takeIf { it.startsWith("http") }
+        val rest = html.substring(imgIndex, minOf(html.length, imgIndex + 4000))
+        // Порядок важен: сначала обычный src, затем ленивые data-src, затем srcset
+        val patterns = listOf(
+            Regex("\\ssrc\\s*=\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE),
+            Regex("\\sdata-src\\s*=\\s*[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE),
+            Regex("\\ssrcset\\s*=\\s*[\"']([^\"'\\s]+)", RegexOption.IGNORE_CASE)
+        )
+        for (pattern in patterns) {
+            val match = pattern.find(rest) ?: continue
+            val url = match.groupValues[1]
+            if (url.startsWith("http")) return url
+        }
+        return null
     }
 
     /** HTML → обычный текст: без тегов, с раскрытыми сущностями. */

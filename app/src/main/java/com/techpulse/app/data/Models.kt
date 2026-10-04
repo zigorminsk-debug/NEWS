@@ -13,7 +13,11 @@ data class FeedItem(
     val sourceId: String,
     val sourceName: String,
     /** Цвет-метка источника (ARGB). */
-    val sourceColorHex: Long
+    val sourceColorHex: Long,
+    /** Перевод заголовка на русский (подставляется фоново после загрузки ленты). */
+    val translatedTitle: String? = null,
+    /** Перевод аннотации на русский. */
+    val translatedSummary: String? = null
 )
 
 /** RSS-источник IT-новостей. */
