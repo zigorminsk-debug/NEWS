@@ -15,8 +15,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -31,11 +31,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.techpulse.app.BuildConfig
 import com.techpulse.app.FeedViewModel
+import com.techpulse.app.data.FeedItem
 import com.techpulse.app.data.Sources
 import com.techpulse.app.ui.TimeAgo
 import com.techpulse.app.ui.components.EmptyState
@@ -43,21 +43,24 @@ import com.techpulse.app.ui.components.LoadingIndicator
 import com.techpulse.app.ui.components.NewsList
 import com.techpulse.app.ui.components.ScreenHeader
 import com.techpulse.app.ui.components.SearchField
-import com.techpulse.app.ui.openUrl
 import com.techpulse.app.ui.theme.AccentCyan
+import com.techpulse.app.ui.theme.AccentGreen
 import com.techpulse.app.ui.theme.TextSecondary
 
 /**
  * Главный экран — лента IT-новостей:
- * поиск, фильтр по источникам, карточки с аннотациями и переходом к источнику.
+ * поиск, фильтр по источникам, карточки с аннотациями и открытием статьи
+ * во встроенном ридере (авто-перевод / режим обучения).
  */
 @Composable
 fun FeedScreen(
     viewModel: FeedViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenArticle: (FeedItem) -> Unit = {},
+    updateAvailable: Boolean = false,
+    onCheckUpdates: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
 
     val filteredItems = remember(state.items, state.query, state.activeSources) {
         state.items.filter { item ->
@@ -81,6 +84,25 @@ fun FeedScreen(
             },
             badgeText = "BUILD ${BuildConfig.BUILD_NUMBER}",
             trailing = {
+                // Кнопка проверки обновлений приложения; точка — есть новая версия
+                IconButton(onClick = onCheckUpdates) {
+                    Box {
+                        Icon(
+                            Icons.Filled.SystemUpdate,
+                            contentDescription = "Проверить обновления",
+                            tint = if (updateAvailable) AccentGreen else TextSecondary
+                        )
+                        if (updateAvailable) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(AccentGreen)
+                                    .align(Alignment.TopEnd)
+                            )
+                        }
+                    }
+                }
                 IconButton(
                     onClick = viewModel::refresh,
                     enabled = !state.isRefreshing && !state.initialLoading
@@ -137,7 +159,7 @@ fun FeedScreen(
             else -> NewsList(
                 feedItems = filteredItems,
                 error = state.error,
-                onOpen = { openUrl(context, it.link) },
+                onOpen = onOpenArticle,
                 onToggleBookmark = viewModel::toggleBookmark,
                 isBookmarked = viewModel::isBookmarked
             )

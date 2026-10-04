@@ -46,7 +46,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,7 +58,6 @@ import com.techpulse.app.ui.components.GradientDivider
 import com.techpulse.app.ui.components.ScreenHeader
 import com.techpulse.app.ui.components.SearchField
 import com.techpulse.app.ui.formatHost
-import com.techpulse.app.ui.openUrl
 import com.techpulse.app.ui.theme.AccentCyan
 import com.techpulse.app.ui.theme.SurfaceElevated
 import com.techpulse.app.ui.theme.TextPrimary
@@ -67,11 +65,13 @@ import com.techpulse.app.ui.theme.TextSecondary
 
 /**
  * Каталог полезных IT-ресурсов: сгруппирован по категориям,
- * с поиском и быстрым переходом на сайт.
+ * с поиском и открытием сайтов во встроенном браузере с авто-переводом на русский.
  */
 @Composable
-fun ResourcesScreen(modifier: Modifier = Modifier) {
-    val context = LocalContext.current
+fun ResourcesScreen(
+    modifier: Modifier = Modifier,
+    onOpenSite: (ItResource) -> Unit = {}
+) {
     var query by rememberSaveable { mutableStateOf("") }
     var activeCategory by rememberSaveable { mutableStateOf("") }
 
@@ -144,7 +144,7 @@ fun ResourcesScreen(modifier: Modifier = Modifier) {
                         }
                         items(categoryItems, key = { it.id }) { resource ->
                             ResourceCard(resource = resource) {
-                                openUrl(context, resource.url)
+                                onOpenSite(resource)
                             }
                         }
                     }

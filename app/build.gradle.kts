@@ -33,6 +33,8 @@ android {
         versionName = "1.0.$buildNumber"
 
         buildConfigField("int", "BUILD_NUMBER", buildNumber.toString())
+        // Репозиторий для проверки обновлений (GitHub Releases)
+        buildConfigField("String", "GITHUB_REPO", "\"zigorminsk-debug/NEWS\"")
     }
 
     signingConfigs {
@@ -108,6 +110,9 @@ dependencies {
 
     // Загрузка изображений из RSS
     implementation(libs.coil.compose)
+
+    // Извлечение текста статей для встроенного ридера
+    implementation(libs.jsoup)
 
     // HTTP-клиент для загрузки RSS-лент
     implementation(libs.okhttp)

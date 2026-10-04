@@ -228,7 +228,7 @@ fun NewsCard(
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    text = "ЧИТАТЬ В ИСТОЧНИКЕ",
+                    text = "ЧИТАТЬ В ПРИЛОЖЕНИИ",
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
                     color = AccentCyan
