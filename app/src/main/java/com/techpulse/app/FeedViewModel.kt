@@ -75,9 +75,11 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
                     error = null,
                     lastUpdated = System.currentTimeMillis()
                 )
-                // После обновления ленты — фоново переводим новые карточки
-                scheduleFeedTranslations(fresh)
             }
+        }
+        // После обновления ленты — фоново переводим заголовки и аннотации новых карточек
+        if (fresh.isNotEmpty()) {
+            scheduleFeedTranslations(fresh)
         }
     }
 
