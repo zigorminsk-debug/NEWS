@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -26,7 +27,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,6 +41,7 @@ import com.techpulse.app.FeedViewModel
 import com.techpulse.app.data.FeedItem
 import com.techpulse.app.data.Sources
 import com.techpulse.app.ui.TimeAgo
+import com.techpulse.app.ui.components.AboutDialog
 import com.techpulse.app.ui.components.EmptyState
 import com.techpulse.app.ui.components.LoadingIndicator
 import com.techpulse.app.ui.components.NewsList
@@ -61,6 +65,11 @@ fun FeedScreen(
     onCheckUpdates: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var showAbout by remember { mutableStateOf(false) }
+
+    if (showAbout) {
+        AboutDialog(onDismiss = { showAbout = false })
+    }
 
     val filteredItems = remember(state.items, state.query, state.activeSources) {
         state.items.filter { item ->
@@ -104,6 +113,14 @@ fun FeedScreen(
                             )
                         }
                     }
+                }
+                // О приложении: версия, разработчик, контакты
+                IconButton(onClick = { showAbout = true }) {
+                    Icon(
+                        Icons.Filled.Info,
+                        contentDescription = "О приложении",
+                        tint = TextSecondary
+                    )
                 }
                 IconButton(
                     onClick = viewModel::refresh,
